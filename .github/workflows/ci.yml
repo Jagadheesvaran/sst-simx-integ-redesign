@@ -17,7 +17,10 @@ on: [push, pull_request]
 
 jobs:
   setup:
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
@@ -30,18 +33,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tools
-          key: ${{ runner.os }}-toolchain-v0.1
+          key: ${{ matrix.os }}-toolchain-v0.1
           restore-keys: |
-            ${{ runner.os }}-toolchain-
+            ${{ matrix.os }}-toolchain-
 
       - name: Cache Third Party Directory
         id: cache-thirdparty
         uses: actions/cache@v4
         with:
           path: third_party
-          key: ${{ runner.os }}-thirdparty-v0.1
+          key: ${{ matrix.os }}-thirdparty-v0.1
           restore-keys: |
-            ${{ runner.os }}-thirdparty-
+            ${{ matrix.os }}-thirdparty-
 
       - name: Install Dependencies
         if: steps.cache-toolchain.outputs.cache-hit != 'true' || steps.cache-thirdparty.outputs.cache-hit != 'true'
@@ -56,18 +59,27 @@ jobs:
           cd build
           ../configure --tooldir=$TOOLDIR
           ci/toolchain_install.sh --all
+          ci/sst_install.sh
 
       - name: Setup Third Party
         if: steps.cache-thirdparty.outputs.cache-hit != 'true'
         run: |
           make -C third_party > /dev/null
 
+      - name: Export SST paths
+        run: |
+          echo "$PWD/tools/sst-install/sst-core/bin" >> $GITHUB_PATH
+          echo "$PWD/tools/sst-install/sst-elements/bin" >> $GITHUB_PATH
+          echo "SST_CORE_HOME=$PWD/tools/sst-install/sst-core" >> $GITHUB_ENV
+          echo "SST_ELEMENTS_HOME=$PWD/tools/sst-install/sst-elements" >> $GITHUB_ENV
+
   build:
-    runs-on: ubuntu-22.04
     needs: setup
     strategy:
       matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
         xlen: [32, 64]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
@@ -82,18 +94,25 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tools
-          key: ${{ runner.os }}-toolchain-v0.1
+          key: ${{ matrix.os }}-toolchain-v0.1
           restore-keys: |
-            ${{ runner.os }}-toolchain-
+            ${{ matrix.os }}-toolchain-
 
       - name: Cache Third Party Directory
         id: cache-thirdparty
         uses: actions/cache@v4
         with:
           path: third_party
-          key: ${{ runner.os }}-thirdparty-v0.1
+          key: ${{ matrix.os }}-thirdparty-v0.1
           restore-keys: |
-            ${{ runner.os }}-thirdparty-
+            ${{ matrix.os }}-thirdparty-
+
+      - name: Export SST paths
+        run: |
+          echo "$PWD/tools/sst-install/sst-core/bin" >> $GITHUB_PATH
+          echo "$PWD/tools/sst-install/sst-elements/bin" >> $GITHUB_PATH
+          echo "SST_CORE_HOME=$PWD/tools/sst-install/sst-core" >> $GITHUB_ENV
+          echo "SST_ELEMENTS_HOME=$PWD/tools/sst-install/sst-elements" >> $GITHUB_ENV
 
       - name: Run Build
         run: |
@@ -108,17 +127,18 @@ jobs:
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.xlen }}
+          name: build-${{ matrix.os }}-${{ matrix.xlen }}
           path: build${{ matrix.xlen }}
 
   tests:
-    runs-on: ubuntu-22.04
     needs: build
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
         name: [regression, opencl, cache, config1, config2, debug, scope, stress, synthesis, vm, vector, cupbop, tensor]
         xlen: [32, 64]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
@@ -133,24 +153,31 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tools
-          key: ${{ runner.os }}-toolchain-v0.1
+          key: ${{ matrix.os }}-toolchain-v0.1
           restore-keys: |
-            ${{ runner.os }}-toolchain-
+            ${{ matrix.os }}-toolchain-
 
       - name: Cache Third Party Directory
         id: cache-thirdparty
         uses: actions/cache@v4
         with:
           path: third_party
-          key: ${{ runner.os }}-thirdparty-v0.1
+          key: ${{ matrix.os }}-thirdparty-v0.1
           restore-keys: |
-            ${{ runner.os }}-thirdparty-
+            ${{ matrix.os }}-thirdparty-
 
       - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
-          name: build-${{ matrix.xlen }}
+          name: build-${{ matrix.os }}-${{ matrix.xlen }}
           path: build${{ matrix.xlen }}
+
+      - name: Export SST paths
+        run: |
+          echo "$PWD/tools/sst-install/sst-core/bin" >> $GITHUB_PATH
+          echo "$PWD/tools/sst-install/sst-elements/bin" >> $GITHUB_PATH
+          echo "SST_CORE_HOME=$PWD/tools/sst-install/sst-core" >> $GITHUB_ENV
+          echo "SST_ELEMENTS_HOME=$PWD/tools/sst-install/sst-elements" >> $GITHUB_ENV
 
       - name: Run tests
         run: |
@@ -162,6 +189,7 @@ jobs:
             ./ci/regression.sh --isa
             ./ci/regression.sh --kernel
             ./ci/regression.sh --regression
+            ./ci/regression.sh --sst_tests
           else
             ./ci/regression.sh --${{ matrix.name }}
           fi
